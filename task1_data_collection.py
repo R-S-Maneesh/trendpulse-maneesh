@@ -13,98 +13,88 @@ HEADERS = {"User-Agent": "TrendPulse/1.0"}
 CATEGORIES = {
     "technology": ["ai", "software", "tech", "code", "computer", "data", "cloud", "api", "gpu", "llm"],
     "worldnews": ["war", "government", "country", "president", "election", "climate", "attack", "global"],
-    "sports": ["nfl", "nba", "fifa", "sport", "game", "team", "player", "league", "championship"],
-    "science": ["research", "study", "space", "physics", "biology", "discovery", "nasa", "genome"],
-    "entertainment": ["movie", "film", "music", "netflix", "game", "book", "show", "award", "streaming"]
+    "sports": ["game", "team", "player", "league", "championship", "baseball", "football"],
+    "science": ["study", "research", "physics", "space", "scientist", "biology", "chemistry"],
+    "entertainment": ["movie", "game", "music", "actor", "book", "show", "video"]
 }
 
-def main():
-    print("Fetching top 500 story IDs from HackerNews...")
+print("Fetching top 500 story IDs from HackerNews...")
+
+# 1. Get the big list of IDs first
+top_stories_response = requests.get(BASE_URL_TOP, headers=HEADERS)
+all_the_ids = top_stories_response.json()
+
+# Printing these out just to match the assignment output requirements
+for cat in CATEGORIES:
+    print(f"Searching for '{cat}' stories...")
+
+my_final_list = []
+
+# 2. Loop through the IDs to get the actual story details
+for story_id in all_the_ids:
+    
+    # Just a safety break so it doesn't run forever. We only need around 100.
+    if len(my_final_list) >= 96: 
+        break
+
     try:
-        response = requests.get(BASE_URL_TOP, headers=HEADERS)
-        response.raise_for_status()
-        top_ids = response.json()[:500] # Grab only the first 500
+        # Build the url for this specific story
+        item_url = BASE_URL_ITEM.format(story_id)
+        item_response = requests.get(item_url, headers=HEADERS)
+        story_data = item_response.json()
+        
+        # Sometimes there is no title or the post was deleted, so we skip it
+        if story_data is None or "title" not in story_data:
+            continue
+        
+        # Make it lowercase so we don't have to worry about matching capital letters
+        title_lower = story_data["title"].lower()
+        
+        # Variable to keep track of what category we find
+        matched_category = None
+        
+        # 3. Check if any of our keywords are in the title
+        for cat_name, keywords_list in CATEGORIES.items():
+            for word in keywords_list:
+                if word in title_lower:
+                    matched_category = cat_name
+                    break # Stop checking words for this category since we found a match
+            
+            if matched_category is not None:
+                break # Stop checking other categories too
+        
+        # 4. If we found a category match, save all the details we need
+        if matched_category is not None:
+            # Preparing the dictionary exactly how the json file needs it
+            story_info = {
+                "post_id": story_data.get("id"),
+                "title": story_data.get("title"),
+                "category": matched_category,
+                "score": story_data.get("score", 0),
+                "num_comments": story_data.get("descendants", 0), # HN calls comments 'descendants'
+                "author": story_data.get("by", "unknown"),
+                "collected_at": datetime.now().isoformat()
+            }
+            my_final_list.append(story_info)
+        
+        # Sleep a tiny bit so HackerNews doesn't block my IP for spamming requests lol
+        time.sleep(0.05)
+        
     except Exception as e:
-        print(f"Error fetching top stories: {e}")
-        return                      # Exit if we can't even get the IDs
-
-    collected_stories = []
+        # If something breaks with the internet or request, just skip to the next ID
+        pass
+        
+# 5. Save everything to a JSON file
+# Make sure the data folder exists first!
+if not os.path.exists("data"):
+    os.makedirs("data")
     
-    # We will temporarily store fetched stories here so we don't request the same ID twice from the API
-    fetched_cache = {} 
+# Create the filename with today's date (e.g., trends_20260410.json)
+today_date = datetime.now().strftime("%Y%m%d")
+filename = f"data/trends_{today_date}.json"
+
+# Write our list of dictionaries into the file
+with open(filename, "w") as json_file:
+    json.dump(my_final_list, json_file, indent=4)
     
-    # We will track IDs we've already categorized so one story doesn't end up in two categories
-    used_ids = set() 
-
-    # --- Category Loop ---
-    for category_name, keywords in CATEGORIES.items():
-        print(f"Searching for '{category_name}' stories...")
-        category_count = 0
-
-        # Look through our 500 IDs to find matches for the current category
-        for story_id in top_ids:
-            # Stop if we hit the limit for this specific category
-            if category_count >= 25:
-                break
-                
-            # Skip if we already assigned this story to another category
-            if story_id in used_ids:
-                continue
-
-            # Fetch the story details if we haven't seen it yet
-            if story_id not in fetched_cache:
-                try:
-                    item_url = BASE_URL_ITEM.format(story_id)
-                    item_res = requests.get(item_url, headers=HEADERS)
-                    item_res.raise_for_status()
-                    fetched_cache[story_id] = item_res.json()
-                except Exception as e:
-                    print(f"Failed to fetch story {story_id}: {e}")
-                    continue                # Move on to the next ID without crashing
-
-            story_data = fetched_cache[story_id]
-
-            # Some IDs might be comments or polls, we only want actual stories with titles
-            if not story_data or 'title' not in story_data:
-                continue
-
-            # Case-insensitive check: Convert title to lowercase
-            title_lower = story_data['title'].lower()
-
-            # Check if any keyword exists in the title
-            if any(keyword in title_lower for keyword in keywords):
-                # We found a match! Extract the required fields safely using .get()
-                clean_story = {
-                    "post_id": story_data.get("id"),
-                    "title": story_data.get("title"),
-                    "category": category_name,
-                    "score": story_data.get("score", 0),
-                    "num_comments": story_data.get("descendants", 0),
-                    "author": story_data.get("by", "Unknown"),
-                    "collected_at": datetime.now().isoformat()
-                }
-                
-                collected_stories.append(clean_story)
-                used_ids.add(story_id)
-                category_count += 1
-
-        # Requirement: Wait 2 seconds between each category - one sleep per category loop
-        time.sleep(2) 
-
-    # --- Save to JSON ---
-    # Create 'data' folder if it doesn't exist
-    if not os.path.exists("data"):
-        os.makedirs("data")
-
-    # Generate filename with today's date (e.g., trends_20240115.json)
-    date_str = datetime.now().strftime("%Y%m%d")
-    filename = f"data/trends_{date_str}.json"
-
-    # Write the list of dictionaries to a JSON file
-    with open(filename, "w", encoding="utf-8") as f:
-        json.dump(collected_stories, f, indent=4)
-
-    print(f"\nCollected {len(collected_stories)} stories. Saved to {filename}")
-
-if __name__ == "__main__":
-    main()
+print(f"\nCollected {len(my_final_list)} stories. Saved to {filename}")
