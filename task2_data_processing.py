@@ -15,14 +15,13 @@ if len(json_files) == 0:
 # Grab the first file it finds (should be the one we just made)
 my_file = json_files[0] 
 
-# Pandas makes loading json super easy
 df = pd.read_json(my_file)
 print(f"Loaded {len(df)} stories from {my_file}")
 
 # --- 2. Clean the Data ---
 
 # Issue 1: Duplicates
-# The assignment says to remove any rows with the exact same post_id
+# It is asked to remove any rows with the exact same post_id
 df = df.drop_duplicates(subset=['post_id'])
 print(f"After removing duplicates: {len(df)}")
 
@@ -66,3 +65,4 @@ category_counts = df['category'].value_counts()
 for category_name, count in category_counts.items():
     # I'm using ljust(15) to add spaces so the numbers line up neatly like the example output
     print(f"  {category_name.ljust(15)} {count}")
+    
